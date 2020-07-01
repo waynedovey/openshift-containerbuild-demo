@@ -103,56 +103,31 @@ objects:
         - name: ENABLE_QUAY
           value: ${ENABLE_QUAY}
         jenkinsfile: |-
-          def mvnCmd = "mvn -s configuration/cicd-settings-nexus3.xml"
-
           pipeline {
-            agent {
-              label 'maven'
+            environment {
+              registry = "untrusted-quay-quay-enterprise.apps.ocp4.digitaldovey.com/quay"
+              registryCredential = 'dockerhub'
+              dockerImage = ''     
             }
+            agent any
             stages {
-              stage('Build App') {
+              stage('Cloning Git') {
                 steps {
-                  git branch: 'eap-7', url: 'http://gogs:3000/gogs/openshift-tasks.git'
-                  sh "${mvnCmd} install -DskipTests=true"
+                  git 'https://github.com/gustavoapolinario/microservices-node-example-todo-frontend.git'
                 }
               }
-              stage('Test') {
-                steps {
-                  sh "${mvnCmd} test"
-                  step([$class: 'JUnitResultArchiver', testResults: '**/target/surefire-reports/TEST-*.xml'])
-                }
-              }
-              stage('Code Analysis') {
-                steps {
+              stage('Building image') {
+                steps{
                   script {
-                    sh "${mvnCmd} sonar:sonar -Dsonar.host.url=http://sonarqube:9000 -DskipTests=true"
+                    dockerImage = docker.build registry + ":$BUILD_NUMBER"
                   }
                 }
               }
-              stage('Archive App') {
-                steps {
-                  sh "${mvnCmd} deploy -DskipTests=true -P nexus3"
-                }
-              }
-              stage('Build Image') {
-                steps {
-                  sh "cp target/openshift-tasks.war target/ROOT.war"
+              stage('Deploy Image') {
+                steps{
                   script {
-                    openshift.withCluster() {
-                      openshift.withProject(env.DEV_PROJECT) {
-                        openshift.selector("bc", "tasks").startBuild("--from-file=target/ROOT.war", "--wait=true")
-                      }
-                    }
-                  }
-                }
-              }
-              stage('Deploy DEV') {
-                steps {
-                  script {
-                    openshift.withCluster() {
-                      openshift.withProject(env.DEV_PROJECT) {
-                        openshift.selector("dc", "tasks").rollout().latest();
-                      }
+                    docker.withRegistry( '', registryCredential ) {
+                      dockerImage.push()
                     }
                   }
                 }
